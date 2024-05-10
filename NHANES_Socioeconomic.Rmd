@@ -1,0 +1,324 @@
+---
+title: "Stats 415 Project"
+author: "Michael Williams"
+date: "2023-12-03"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(haven)
+
+# Load the dataset
+stuff <- read_xpt("DEMO_J.XPT")
+
+# Define the threshold for missing responses
+threshold <- 1250
+
+# Loop through each variable
+for (col_name in colnames(stuff)) {
+  # Check if the variable has more than 1000 missing responses
+  if (sum(stuff[[col_name]] %in% c(".", NA), na.rm = TRUE) > threshold) {
+    # Remove the variable from the dataset
+    stuff[[col_name]] <- NULL
+    cat("Variable", col_name, "removed due to more than", threshold, "missing responses.\n")
+  }
+}
+
+# Drop observations with any remaining NAs
+stuff <- na.omit(stuff)
+
+# Display the updated dataset
+head(stuff)
+
+# Print the number of remaining observations
+cat("Number of remaining observations:", nrow(stuff), "\n")
+
+
+```
+
+
+```{r}
+stuff <- subset(stuff, select = -SDDSRVYR)
+```
+
+```{r}
+data <- stuff
+columns_to_remove <- c("SEQN", "RIDSTATR", "RIDEXMON", "SIAPROXY", "SIAINTRP", "FIAPROXY", "FIAINTRP", "WTINT2YR", "WTMEC2YR", "SDMVPSU", "SDMVSTRA")
+
+data <- data[, !names(data) %in% columns_to_remove]
+
+# Note, I remove all "meta" variables that start with SIA except SIALANG because it is sort of a representation of how good the sampled person's English skill is. I also removed all "meta" variables that start with FIA except FIALANG for the same reason. 
+# WTINT2YR, WTMEC2YR, SDMVPSU, SDMVSTRA are really more for the purpose of carry out this research, so I just delete it.
+
+columns_to_factor <- c("RIAGENDR", "RIDRETH1", "RIDRETH3", "DMDBORN4", "DMDCITZN", "SIALANG", "FIALANG", "DMDHRGND", "DMDHRAGZ", "DMDHREDZ", "DMDHRMAZ", "INDFMIN2", "INDHHIN2")
+data[columns_to_factor] <- lapply(data[columns_to_factor], factor)
+
+data <- data[data$DMDCITZN != 7, ]
+data <- data[data$DMDCITZN != 9, ]
+
+data <- data[data$INDFMIN2 != 99, ]
+data <- data[data$INDFMIN2 != 77, ]
+data <- data[data$INDFMIN2 != 12, ]
+data <- data[data$INDFMIN2 != 13, ]
+
+
+
+data <- data[data$INDHHIN2 != 99, ]
+data <- data[data$INDHHIN2 != 77, ]
+data <- data[data$INDHHIN2 != 12, ]
+data <- data[data$INDHHIN2 != 13, ]
+
+data$DMDCITZN <- droplevels(data$DMDCITZN)
+data$INDHHIN2 <- droplevels(data$INDHHIN2)
+data$INDFMIN2 <- droplevels(data$INDFMIN2)
+
+levels(data$INDFMIN2) <- c(1:12)
+levels(data$INDHHIN2) <- c(1:12)
+
+summary(data)
+summary(data$INDFMIN2)
+summary(data$INDHHIN2)
+```
+
+
+
+```{r}
+data <- data[, !(names(data) %in% c("RIDRETH1", "FIALANG"))]
+```
+
+
+```{r}
+guy <- data[, !(names(data) %in% c("INDFMIN2", "INDHHIN2"))]
+```
+
+```{r}
+# Assuming your data is stored in a data frame called 'data' and your response variable is 'INDFMPIR'
+# Make sure to handle missing values as needed
+
+# Install and load the glmnet package if not already installed
+# install.packages("glmnet")
+library(glmnet)
+
+# Remove observation when ratio 5.0+
+guy2 <- guy[guy$INDFMPIR != 5.0, ]
+
+
+# Convert response variable to a numeric vector if not already
+response <- as.numeric(guy2$INDFMPIR)
+
+# Convert factor variables to numeric
+data_numeric <- model.matrix(~.-1, data = guy2)
+
+# Remove non-numeric variables and handle missing values
+numeric_data <- na.omit(data_numeric)
+
+
+# Split the data into training and test sets
+set.seed(42)
+train_indices <- sample(1:nrow(numeric_data), 0.8 * nrow(numeric_data))
+train_data <- numeric_data[train_indices, ]
+test_data <- numeric_data[-train_indices, ]
+
+# Fit Lasso regression with cross-validation
+lasso_cv <- cv.glmnet(as.matrix(train_data[, -ncol(train_data)]), response[train_indices])
+
+# Find the lambda value that minimizes mean squared error
+best_lambda <- lasso_cv$lambda.min
+
+# Fit the final Lasso model with the chosen lambda
+lasso_model <- glmnet(as.matrix(train_data[, -ncol(train_data)]), response[train_indices], alpha = 1, lambda = best_lambda)
+
+# Display the coefficients of the selected variables
+selected_variables <- coef(lasso_model, s = best_lambda)
+print(selected_variables)
+```
+
+```{r}
+library(coefplot)
+
+# Get the coefficients
+lasso_coefs <- as.matrix(coef(lasso_model, s = best_lambda))
+
+# Create a data frame for plotting
+coefs_df <- data.frame(
+  Variables = rownames(lasso_coefs),
+  Coefficients = as.numeric(lasso_coefs)
+)
+
+
+
+# Plot the coefficients using ggplot2
+library(ggplot2)
+
+ggplot(coefs_df, aes(x = reorder(Variables, Coefficients), y = Coefficients)) +
+  geom_col(fill = "skyblue", color = "black") +
+  coord_flip() +
+  labs(x = "Variables", y = "Coefficients") +
+  theme_minimal()
+
+
+```
+
+```{r}
+print(best_lambda)
+```
+```{r}
+levels(data$RIAGENDR) = c("Male", "Female")
+plot = ggplot(data, aes(x = RIAGENDR, y = INDFMPIR)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of gender by ratio of family income to poverty")
+plot
+ggsave("Boxplotofage.png", plot = plot, width = 6, height = 4)
+
+```
+
+```{r}
+# Assuming your data is stored in a data frame called 'data'
+# Assuming your dataset is named 'guy'
+guy <- guy[, !(names(guy) %in% c("RIAGENDR"))]
+
+```
+
+```{r}
+# Assuming your data is stored in a data frame called 'guy'
+guy$income_level <- cut(guy$INDFMPIR, breaks = c(-Inf, 1, 2, Inf), labels = c("Impoverished", "Low Income", "Other"))
+
+# Convert the new variable to a factor
+guy$income_level <- as.factor(guy$income_level)
+```
+
+
+
+```{r}
+gg1 = ggplot(guy, aes(x = factor(income_level, levels = c("Poverty", "Low Income", "Others")), fill = income_level)) +
+  geom_bar() +
+  labs(title = "Income Category Distribution",
+       x = "Income Category",
+       y = "Count") +
+  theme_minimal() + theme(
+    axis.text.x = element_blank())
+
+gg2 = ggplot(guy, aes(x = INDFMPIR)) +
+geom_histogram(aes(y = after_stat(density)), bins = 40, color = "darkblue", fill = "lightblue", alpha = 0.5) + geom_density() +
+labs(x = "ratio of family income to poverty", y = "Density") + theme_bw()
+
+library(ggpubr)
+
+gg = ggarrange(gg1, gg2, ncol = 2)
+
+ggsave("income_level_distribution.png", plot = gg, width = 6, height = 4)
+
+```
+
+``` {r}
+levels(guy$DMDHHSZA) <- c(
+  0, 1, 2, "3 or More"
+)
+levels(guy$DMDHHSZB) <- c(
+  0, 1, 2, "3 or More"
+)
+
+plot_dmdhhsza <- ggplot(guy, aes(x = DMDHHSZA, fill = DMDHHSZA)) +
+  geom_bar() +
+  labs(title = "# of Children 5 Years or Younger in HH",
+       x = "# of Children",
+       y = "Count") +
+  theme_minimal()
+
+plot_dmdhhszb <- ggplot(guy, aes(x = DMDHHSZB, fill = DMDHHSZB)) +
+  geom_bar() +
+  labs(title = "# of Children 6-17 Years Old in HH",
+       x = "# of Children",
+       y = "Count") +
+  theme_minimal()
+
+plot2 = ggarrange(plot_dmdhhsza, plot_dmdhhszb, ncol = 2, common.legend = TRUE, legend = "right")
+plot2
+ggsave("plot_output2.jpg", plot2, device = "jpg", width = 10, height = 6, units = "in")
+```
+
+```{r}
+guy <- subset(guy, select = -c(RIDAGEYR))
+```
+
+```{r}
+# Assuming your data is stored in a data frame called 'guy'
+# Make sure to install and load the 'randomForest' package if not already installed
+# install.packages("randomForest")
+library(randomForest)
+
+#guy <- subset(guy, select = -c(RIDAGEYR))
+
+# Set seed for reproducibility
+set.seed(42)
+
+# Create a training set
+train_indices <- sample(1:nrow(guy), 0.8 * nrow(guy))
+train_data <- guy[train_indices, ]
+test_data <- guy[-train_indices, ]
+
+# Fit a random forest model
+rf_model <- randomForest(income_level ~ . - INDFMPIR, data = train_data)
+
+# Make predictions on the test set
+predictions <- predict(rf_model, newdata = test_data)
+
+# Print confusion matrix
+table(predictions, test_data$income_level)
+
+```
+
+
+```{r}
+
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Print variable importance
+print(var_importance)
+
+# Plot variable importance
+varImpPlot(rf_model)
+```
+
+```{r}
+library(caret)
+# Create confusion matrix
+conf_matrix <- confusionMatrix(predictions, test_data$income_level)
+
+# Save as JPEG image
+jpeg("confusion_m.jpg", width = 800, height = 600, quality = 90)
+
+# Plot confusion matrix with caret's plot method
+plot(conf_matrix$table, col = "Blues", main = "Confusion Matrix", color = TRUE)
+
+# Close the JPEG device
+dev.off()
+```
+
+```{r}
+# Extract metrics from the confusion matrix
+TP <- conf_matrix$table["Impoverished", "Impoverished"]
+TN <- sum(conf_matrix$table[-1, -1])
+FP <- sum(conf_matrix$table["Impoverished", -1])
+FN <- sum(conf_matrix$table[-1, "Impoverished"])
+
+# Calculate metrics
+accuracy <- (TP + TN) / sum(conf_matrix$table)
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+specificity <- TN / (TN + FP)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Display the results
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("Specificity:", specificity, "\n")
+cat("F1 Score:", f1_score, "\n")
+```
