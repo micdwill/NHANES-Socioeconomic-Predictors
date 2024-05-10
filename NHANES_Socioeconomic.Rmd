@@ -1,5 +1,5 @@
 ---
-title: "Stats 415 Project"
+title: "NHANES Socioeconmic Disparities"
 author: "Michael Williams"
 date: "2023-12-03"
 output: pdf_document
