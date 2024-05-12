@@ -5,5 +5,5 @@ The variable to predict is ratio of family income to poverty. It uses LASSO regr
 optimal lambda parameter. Then, a random forest is leveraged in order to find good predictors for our response variable by analyzing mean decrease in Gini 
 Coefficient.
 
-This repository includes a [report on the findings](https://github.com/micdwill/NHANES-Socioeconomic-Predictors/blob/master/NHANES.pdf). This includes
-many graphics and the conclusions drawn.
+This repository includes a report on the findings in [NHANES.pdf](https://github.com/micdwill/NHANES-Socioeconomic-Predictors/blob/master/NHANES.pdf). This includes many graphics and conclusions drawn. The RMarkdown code containing the analysis and the code for the graphics generated is included in this 
+repository in [NHANES_Socioeconomic.Rmd](https://github.com/micdwill/NHANES-Socioeconomic-Predictors/blob/master/NHANES_Socioeconomic.Rmd).
